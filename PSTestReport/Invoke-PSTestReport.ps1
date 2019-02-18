@@ -22,16 +22,16 @@ $Colors = @{
 $templateFile = "$PSScriptRoot\lib\TestReport.htm"
 
 # Load Pester JSON Files: Required
-if (!(Test-Path $PesterFile)) 
-{ 
+if (!(Test-Path $PesterFile))
+{
     throw "$PesterFile is missing."
 }
 $Pester = Get-Content $PesterFile | ConvertFrom-Json
 
 # Load ScriptAnalyzer JSON Files: Optional
 $ScriptAnalyzer = $null;
-if ((Test-Path $ScriptAnalyzerFile)) 
-{ 
+if ((Test-Path $ScriptAnalyzerFile))
+{
     $ScriptAnalyzer = Get-Content $ScriptAnalyzerFile | ConvertFrom-Json
 }
 
@@ -39,7 +39,7 @@ if ((Test-Path $ScriptAnalyzerFile))
 Copy-Item -Recurse -Path "$PSScriptRoot\lib" -Destination (Join-Path $OutputDir "lib") -Force
 
 # From Pester Source
-function Get-HumanTime($Seconds) 
+function Get-HumanTime($Seconds)
 {
     if($Seconds -gt 0.99) {
         $time = [math]::Round($Seconds, 2)
@@ -56,52 +56,101 @@ function Get-HumanTime($Seconds)
 function Get-GitCommitHash($Length)
 {
     $sha = $null
-    
+
     try {
         $sha = (. git rev-parse HEAD).Substring(0, $length)
     }
     catch [System.Exception] {
         Write-Verbose "Git Hash could not be retrieved."
     }
-    
+
     return $sha
 }
 
+function Get-TextImpact($Impact) {
+    if ($Impact -eq $null) { Return 'none' }
+    # From https://www.inspec.io/docs/reference/dsl_inspec/
+    if ($Impact -is [System.String]) { return $Impact }
+    if (($Impact -ge 0.0) -and ($Impact -lt 0.01)) { Return 'none' }
+    if (($Impact -ge 0.01) -and ($Impact -lt 0.4)) { Return 'low' }
+    if (($Impact -ge 0.4) -and ($Impact -lt 0.7)) { Return 'medium' }
+    if (($Impact -ge 0.7) -and ($Impact -lt 0.9)) { Return 'high' }
+    if (($Impact -ge 0.9) -and ($Impact -le 1.10)) { Return 'critical' }
+}
+
+function Get-WeightedScore($Impact) {
+    switch ((Get-TextImpact -Impact $Impact)) {
+        'none' { return 1 }
+        'low' { return 2 }
+        'medium' { return 3 }
+        'high' { return 4 }
+        'critical' { return 5 }
+    }
+}
+
+function Get-LinkifiedText($value) {
+    if ($value -like 'http*') { $value = "<a href='$value'>$value</a>" }
+    Write-Output $value
+}
+
+
 # Create Test HTML Table
 #$TestResults = $Pester.TestResult | Select-Object Result, Name, Describe, Context, FailureMessage, Time
+
+# TODO Calculate Weighted test score
+$WeightedTestTotalScore = 0
+$WeightedTestPassedScore = 0
+$FailedByImpact = @{
+    'none' = 0
+    'low' = 0
+    'medium' = 0
+    'high' = 0
+    'critical' = 0
+}
+
 foreach($test in $Pester.TestResult)
 {
-    if($test.Result -eq "Passed")
-    {
-        $status = "<span class='label label-success'>Passed</span>"
-    }
-    elseif($test.Result -eq "Skipped")
-    {
-        $status = "<span class='label label-warning'>Skipped</span>"
-    }
-    elseif($test.Result -eq "Pending")
-    {
-        $status = "<span class='label label-info'>Pending</span>"
-    }
-    else
-    {
-        $status = "<span class='label label-danger'>Failed</span>"
-    }
+    $metadata = $Test.Metadata
+    $impactText = Get-TextImpact -Impact $Metadata.Impact
 
-    #$formatTime = [String]::format("{0:%m}m {0:%s}s {0:%ffff}ms", [TimeSpan] $test.Time)
+    $WeightedTestTotalScore += Get-WeightedScore -Impact $Metadata['Impact']
+    switch ($test.Result) {
+        "Passed" { $WeightedTestPassedScore += Get-WeightedScore -Impact $Metadata['Impact'] }
+        "Skipped" { }
+        "Pending" { }
+        Default {
+            # Assume a failed test here
+            $desc = ([String]$metadata.Description).Trim()
+            if ([String]::IsNullOrEmpty($desc)) { $desc = ([String]$metadata.Title).Trim() }
+            if (![string]::IsNullOrEmpty($desc)) { $desc += "<br/>" }
+            if ($metadata.Tags -eq $null) { $tags = @() } else { $tags = $metadata.Tags}
+            if ($metadata.References -eq $null) { $refs = @() } else {
+                $refs = @()
+                $metadata.References | ForEach-Object {
+                    $refs += Get-LinkifiedText -Value $_
+                }
+            }
 
-    $formatTime =  Get-HumanTime $test.Time.TotalSeconds
+            switch ($impactText) {
+                'none'     { $status = "<span class='label label-default'><i class='fa fa-angle-double-down' aria-hidden='true' title='No impact'></i></span>" }
+                'low'      { $status = "<span class='label label-info'><i class='fa fa-angle-down' aria-hidden='true' title='Low impact'></i></span>" }
+                'medium'   { $status = "<span class='label label-warning'><i class='fa fa-grip-lines' aria-hidden='true' title='Medium impact'></i></span>" }
+                'high'     { $status = "<span class='label label-warning'><i class='fa fa-angle-up' aria-hidden='true' title='High impact'></i></span>" }
+                'critical' { $status = "<span class='label label-danger'><i class='fa fa-angle-double-up' aria-hidden='true' title='Critical impact'></i></span>" }
+            }
 
-    $TestResultsTable += "
-        <tr>
-            <td>$status</td>
-            <td>$($test.Name)</td>
-            <td>$($test.Describe)</td>
-            <td>$($test.Context)</td>
-            <td>$($test.FailureMessage)</td>
-            <td>$formatTime</td>
-        </tr>
-    "
+            $FailedByImpact[$impactText] += 1
+            $TestResultsTable += "
+            <tr>
+                <td nowrap>$status $($test.Describe)</td>
+                <td>$($test.Name)</td>
+                <td>$($tags -join ', ')</td>
+                <td>$($desc)<br/>$($refs -join '<br/>')</td>
+                <td>$($test.FailureMessage)</td>
+            </tr>
+        "
+        }
+    }
 }
 
 # Create Script Analyzer Table
@@ -131,7 +180,7 @@ foreach ($issue in $ScriptAnalyzer)
 #Keep track of single file coverage so we only iterate once
 $FileCoverage = @{}
 
-foreach($file in $Pester.CodeCoverage.AnalyzedFiles) 
+foreach($file in $Pester.CodeCoverage.AnalyzedFiles)
 {
     $FileCoverage[$file] = @{
         Hit = 0
@@ -158,7 +207,7 @@ foreach($missed in $Pester.CodeCoverage.MissedCommands)
     $FileCoverage[$missed.File].Missed++
 }
 
-# Create Script for Coverage Table (hit) 
+# Create Script for Coverage Table (hit)
 foreach($hit in $Pester.CodeCoverage.HitCommands)
 {
     if($ShowHitCommands)
@@ -185,7 +234,7 @@ foreach($file in $FileCoverage.GetEnumerator())
 {
     $total = ($file.Value.Hit + $file.Value.Missed)
     $coverage = [Math]::Round(($file.Value.Hit / $total) * 100, 2)
-    
+
     if($coverage -lt 10)
     {
        $color = "progress-bar-danger"
@@ -211,14 +260,18 @@ foreach($file in $FileCoverage.GetEnumerator())
     "
 }
 
-$OverallCoverage = ($Pester.CodeCoverage.NumberOfCommandsExecuted/$Pester.CodeCoverage.NumberOfCommandsAnalyzed)
+if ($Pester.CodeCoverage.NumberOfCommandsAnalyzed -gt 0) {
+    $OverallCoverage = ($Pester.CodeCoverage.NumberOfCommandsExecuted/$Pester.CodeCoverage.NumberOfCommandsAnalyzed)
+} else {
+    $OverallCoverage = 0
+}
 
 
 # Determine Pester overall status
 if($Pester.FailedCount -eq 0)
 {
     # If the switch $FailOnSkippedOrPending is set, any skipped or pending tests will fail the build.
-    if ($FailOnSkippedOrPending -and ($Pester.PendingCount -ne 0) -and ($Pester.SkippedCount -ne 0) ) 
+    if ($FailOnSkippedOrPending -and ($Pester.PendingCount -ne 0) -and ($Pester.SkippedCount -ne 0) )
     {
         $PesterPassed = $false
     }
@@ -243,7 +296,7 @@ $Replace = @{
     BUILD_DATE = Get-Date -Format u
     COMMIT_HASH = Get-GitCommitHash -Length 10
 
-    # Generated 
+    # Generated
     BUILD_RESULT = if($OverallCoverage -ge $Compliance -and $PesterPassed) {"PASSED"} else {"FAILED"}
     BUILD_RESULT_COLOR = if($OverallCoverage -ge $Compliance -and$PesterPassed) {"panel-success"} else {"panel-danger"}
     BUILD_RESULT_ICON = if($OverallCoverage -ge $Compliance -and $PesterPassed) {"fa-check"} else {"fa-times"}
@@ -251,18 +304,24 @@ $Replace = @{
     TEST_TABLE = $TestResultsTable
     FILES_TESTED_TABLE = $FilesTestedTable
     SCRIPT_ANALYSIS_TABLE = $ScriptAnalysisTable
-    COVERAGE_TABLE = $CoverageTable
-    TEST_OVERALL = [Math]::Round(($Pester.PassedCount/$Pester.TotalCount) * 100, 0)
+    TEST_OVERALL = [Math]::Round(($WeightedTestPassedScore/$WeightedTestTotalScore) * 100, 0)
     TEST_OVERALL_COLOR = if($Pester.FailedCount -eq 0) {$Colors.GREEN} else {$Colors.RED}
+    COVERAGE_TABLE = $CoverageTable
     COVERAGE_OVERALL = [Math]::Round($OverallCoverage * 100, 0)
-    COVERAGE_OVERALL_COLOR = if($OverallCoverage -lt 0.1) {$Colors.RED} elseif($OverallCoverage -lt 0.5) {$Colors.YELLOW} else {$Colors.GREEN} 
+    COVERAGE_OVERALL_COLOR = if($OverallCoverage -lt 0.1) {$Colors.RED} elseif($OverallCoverage -lt 0.5) {$Colors.YELLOW} else {$Colors.GREEN}
 
     # Pester
-    TOTAL_COUNT = $Pester.TotalCount
     PASSED_COUNT = $Pester.PassedCount
-    FAILED_COUNT = $Pester.FailedCount
+    CRITICAL_CONTROL_FAILURE_COUNT = $FailedByImpact['critical']
+    HIGH_CONTROL_FAILURE_COUNT = $FailedByImpact['high']
+    MEDIUM_CONTROL_FAILURE_COUNT = $FailedByImpact['medium']
+    LOW_CONTROL_FAILURE_COUNT = $FailedByImpact['low']
+    NONE_CONTROL_FAILURE_COUNT = $FailedByImpact['none']
     SKIPPED_COUNT = $Pester.SkippedCount
     PENDING_COUNT = $Pester.PendingCount
+    FAILED_COUNT = $Pester.FailedCount
+    TOTAL_COUNT = $Pester.TotalCount
+
     NUMBER_OF_COMMANDS_ANALYZED = $Pester.CodeCoverage.NumberOfCommandsAnalyzed
     NUMBER_OF_FILES_ANALYZED = $Pester.CodeCoverage.NumberOfFilesAnalyzed
     NUMBER_OF_COMMANDS_EXECUTED = $Pester.CodeCoverage.NumberOfCommandsExecuted
@@ -273,11 +332,11 @@ $Replace = @{
     SA_WARNING_COUNT = ($ScriptAnalyzer | where-object {$_.Severity -eq "1"} | Measure-Object).Count
 }
 
-$template = (Get-Content $templateFile) 
+$template = (Get-Content $templateFile)
 foreach ($var in $Replace.GetEnumerator())
 {
     # Write-Host "Replacing: $($var.key)"
-    $template = $template | ForEach-Object { $_.replace( "{$($var.key)}", $var.value ) }  
+    $template = $template | ForEach-Object { $_.replace( "{$($var.key)}", $var.value ) }
 }
 
 $template | Set-Content (Join-Path $OutputDir "TestReport.htm")

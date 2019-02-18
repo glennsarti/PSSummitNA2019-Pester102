@@ -1,5 +1,11 @@
 # PSTestReport
 
+## Pester 102 Talk Instructions
+
+``` powershell
+PS> & .\CreatePSTestReport.ps1
+```
+
 Early example to generate a static PowerShell test report.
 
 CDN references are included for most common libraries.
@@ -21,7 +27,7 @@ $SAResults | ConvertTo-Json | Set-Content ".\artifacts\ScriptAnalysisResults.jso
 ## Step 2: Run Invoke-PSTestReport script
 
 ```
-# Example: 
+# Example:
 $options = @{
   BuildNumber = 0
   GitRepo = "Xainey/PSHitchhiker"
