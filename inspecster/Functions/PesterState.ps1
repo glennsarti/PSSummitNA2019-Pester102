@@ -76,7 +76,7 @@ function New-PesterState {
         $script:SafeCommands['Export-ModuleMember'] = & (Pester\SafeGetCommand) -Name Export-ModuleMember -Module Microsoft.PowerShell.Core    -CommandType Cmdlet
         $script:SafeCommands['Add-Member'] = & (Pester\SafeGetCommand) -Name Add-Member          -Module Microsoft.PowerShell.Utility -CommandType Cmdlet
 
-        function New-TestGroup([string] $Name, [string] $Hint) {
+        function New-TestGroup([string] $Name, [string] $Hint, [hashtable]$Metadata = @{}) {
             & $SafeCommands['New-Object'] psobject -Property @{
                 Name              = $Name
                 Type              = 'TestGroup'
@@ -94,6 +94,7 @@ function New-PesterState {
                 SkippedCount      = 0
                 PendingCount      = 0
                 InconclusiveCount = 0
+                Metadata          = $Metadata
             }
         }
 
@@ -101,7 +102,7 @@ function New-PesterState {
         $script:TestGroupStack = & $SafeCommands['New-Object'] System.Collections.Stack
         $script:TestGroupStack.Push($script:TestActions)
 
-        function EnterTestGroup([string] $Name, [string] $Hint) {
+        function EnterTestGroup([string] $Name, [string] $Hint, [hashtable]$Metadata = @{}) {
             $newGroup = New-TestGroup @PSBoundParameters
             $newGroup.StartTime = $script:Stopwatch.Elapsed
             $null = $script:TestGroupStack.Peek().Actions.Add($newGroup)
@@ -218,12 +219,14 @@ function New-PesterState {
             $reversedStack = $script:TestGroupStack.ToArray()
             [array]::Reverse($reversedStack)
 
+            $testGroupMetadata = @{}
             foreach ($group in $reversedStack) {
                 if ($group.Hint -eq 'Root' -or $group.Hint -eq 'Script') {
                     continue
                 }
                 if ($describe -eq '') {
                     $describe = $group.Name
+                    $testGroupMetadata = $group.Metadata
                 }
                 else {
                     $null = $contexts.Add($group.Name)
@@ -245,6 +248,7 @@ function New-PesterState {
                 ParameterizedSuiteName = $ParameterizedSuiteName
                 Parameters             = $Parameters
                 Show                   = $script:Show
+                Metadata               = $testGroupMetadata
             }
         }
 

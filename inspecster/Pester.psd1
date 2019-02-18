@@ -30,6 +30,7 @@
     FunctionsToExport = @(
         'Describe'
         'Context'
+        'Control'
         'It'
         'Should'
         'Mock'

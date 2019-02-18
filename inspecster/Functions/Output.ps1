@@ -17,6 +17,7 @@ $Script:ReportStrings = DATA {
         Describe          = 'Describing {0}'
         Script            = 'Executing script {0}'
         Context           = 'Context {0}'
+        Control           = 'Control {0}'
         Margin            = '  '
         Timing            = 'Tests completed in {0}'
 
@@ -38,6 +39,8 @@ $Script:ReportTheme = DATA {
         DescribeDetail   = 'DarkYellow'
         Context          = 'Cyan'
         ContextDetail    = 'DarkCyan'
+        Control          = 'Cyan'
+        ControlDetail    = 'DarkCyan'
         Pass             = 'DarkGreen'
         PassTime         = 'DarkGray'
         Fail             = 'Red'

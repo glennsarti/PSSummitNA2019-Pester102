@@ -92,6 +92,9 @@ function DescribeImpl {
         [Alias('Tags')]
         $Tag = @(),
 
+        [Alias('Control')]
+        [hashtable] $Metadata = @{},
+
         [Parameter(Position = 1)]
         [ValidateNotNull()]
         [ScriptBlock] $Fixture = $(Throw "No test script block is provided. (Have you put the open curly brace on the next line?)"),
@@ -154,7 +157,7 @@ function DescribeImpl {
         }
     }
 
-    $Pester.EnterTestGroup($Name, $CommandUsed)
+    $Pester.EnterTestGroup($Name, $CommandUsed, $Metadata)
 
     if ($null -ne $DescribeOutputBlock) {
         & $DescribeOutputBlock $Name $CommandUsed
