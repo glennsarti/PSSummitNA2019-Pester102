@@ -1,0 +1,11 @@
+name: mattermost
+title: Mattermost OAT tests
+summary: Example Mattermost OAT tests
+
+maintainer: N/A
+copyright: N/A
+license: MIT
+
+version: 1.0.0
+supports:
+  - os-family: windows
