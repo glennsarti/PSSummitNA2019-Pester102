@@ -1,0 +1,32 @@
+---
+driver:
+  name: docker
+
+platforms:
+  # Debian Stretch
+  - name: debian
+    driver_config:
+      image: mattermost/mattermost-preview
+      require_chef_omnibus: false
+      dockerfile: Dockerfile
+      hostname: dockerhost
+      run_command: /mm/docker-entry.sh
+      forward:
+      - 8065:8065
+
+      # Windows only
+      socket: npipe:////./pipe/docker_engine
+
+provisioner:
+  name: shell
+
+lifecycle:
+  pre_create:
+  - local: pwsh -NoProfile -NoLogo -NonInteractive -File ./build-module.ps1
+
+suites:
+  - name: default
+    verifier:
+      name: pester
+      test_folder: tests/uat
+      use_local_pester_module: true
